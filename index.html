@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Todo App</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #f4f6fb;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      padding: 48px 16px;
+    }
+
+    .container { width: 100%; max-width: 560px; }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+    }
+
+    h1 { font-size: 1.8rem; font-weight: 700; color: #1a1a2e; }
+
+    .stats { display: flex; gap: 8px; }
+    .stat {
+      font-size: 0.8rem;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 99px;
+    }
+    .stat.pending { background: #fff3cd; color: #856404; }
+    .stat.done    { background: #d1e7dd; color: #0a5c36; }
+
+    .error {
+      background: #fde8e8;
+      color: #a50000;
+      padding: 10px 14px;
+      border-radius: 8px;
+      margin-bottom: 16px;
+      font-size: 0.875rem;
+      display: none;
+    }
+
+    .add-form {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+
+    input[type="text"] {
+      flex: 1;
+      border: 1.5px solid #dde1ee;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      padding: 10px 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    input[type="text"]:focus { border-color: #5c6ef8; }
+
+    button {
+      cursor: pointer;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.875rem;
+      font-weight: 500;
+      padding: 10px 18px;
+      transition: opacity 0.15s;
+    }
+    button:hover { opacity: 0.85; }
+
+    .btn-add    { background: #5c6ef8; color: #fff; }
+    .btn-edit   { background: #eef0fe; color: #5c6ef8; padding: 6px 12px; }
+    .btn-delete { background: #fdeaea; color: #d63031; padding: 6px 12px; }
+    .btn-save   { background: #d1e7dd; color: #0a5c36; padding: 6px 12px; }
+    .btn-cancel { background: #f0f0f0; color: #555;    padding: 6px 12px; }
+
+    .todo-list { display: flex; flex-direction: column; gap: 8px; }
+
+    .todo-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: #fff;
+      border: 1.5px solid #eaedf5;
+      border-radius: 10px;
+      padding: 12px 14px;
+      transition: box-shadow 0.15s;
+    }
+    .todo-item:hover { box-shadow: 0 2px 8px rgba(92,110,248,0.08); }
+
+    .todo-item input[type="checkbox"] {
+      width: 18px; height: 18px;
+      accent-color: #5c6ef8;
+      flex-shrink: 0;
+      cursor: pointer;
+    }
+
+    .todo-title {
+      flex: 1;
+      font-size: 0.95rem;
+      cursor: pointer;
+    }
+    .todo-item.done .todo-title {
+      text-decoration: line-through;
+      color: #9aa0b4;
+    }
+
+    .edit-input {
+      flex: 1;
+      border: 1.5px solid #5c6ef8;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      padding: 6px 10px;
+      outline: none;
+    }
+
+    .actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+    .empty {
+      text-align: center;
+      color: #9aa0b4;
+      font-size: 0.9rem;
+      padding: 40px 0;
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>📋 Todo List</h1>
+    <div class="stats">
+      <span class="stat pending" id="stat-pending">0 pending</span>
+      <span class="stat done"    id="stat-done">0 done</span>
+    </div>
+  </header>
+
+  <div class="error" id="error-box"></div>
+
+  <div class="add-form">
+    <input type="text" id="new-title" placeholder="What needs to be done?" autocomplete="off" />
+    <button class="btn-add" onclick="addTodo()">Add</button>
+  </div>
+
+  <div class="todo-list" id="todo-list">
+    <div class="empty" id="empty-msg">No todos yet. Add one above!</div>
+  </div>
+</div>
+
+<script>
+  const API = window.__API_URL__ || 'http://192.168.58.10:32001';
+
+  // ── State ──────────────────────────────────────────────
+  let todos = [];
+
+  // ── API helpers ────────────────────────────────────────
+  async function apiFetch(path, options = {}) {
+    const res = await fetch(API + path, {
+      headers: { 'Content-Type': 'application/json' },
+      ...options
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.status === 204 ? null : res.json();
+  }
+
+  function showError(msg) {
+    const box = document.getElementById('error-box');
+    box.textContent = '⚠️ ' + msg;
+    box.style.display = 'block';
+  }
+
+  // ── Load ───────────────────────────────────────────────
+  async function loadTodos() {
+    try {
+      todos = await apiFetch('/todos');
+      render();
+    } catch {
+      showError('Cannot reach backend. Is it running?');
+    }
+  }
+
+  // ── Add ────────────────────────────────────────────────
+  async function addTodo() {
+    const input = document.getElementById('new-title');
+    const title = input.value.trim();
+    if (!title) return;
+    try {
+      const todo = await apiFetch('/todos', {
+        method: 'POST',
+        body: JSON.stringify({ title })
+      });
+      todos.push(todo);
+      input.value = '';
+      render();
+    } catch {
+      showError('Failed to create todo.');
+    }
+  }
+
+  // ── Toggle ─────────────────────────────────────────────
+  async function toggleTodo(id) {
+    const todo = todos.find(t => t.id === id);
+    try {
+      const updated = await apiFetch(`/todos/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ done: !todo.done })
+      });
+      todos = todos.map(t => t.id === id ? updated : t);
+      render();
+    } catch {
+      showError('Failed to update todo.');
+    }
+  }
+
+  // ── Delete ─────────────────────────────────────────────
+  async function deleteTodo(id) {
+    try {
+      await apiFetch(`/todos/${id}`, { method: 'DELETE' });
+      todos = todos.filter(t => t.id !== id);
+      render();
+    } catch {
+      showError('Failed to delete todo.');
+    }
+  }
+
+  // ── Edit ───────────────────────────────────────────────
+  function startEdit(id) {
+    const todo = todos.find(t => t.id === id);
+    const item = document.querySelector(`[data-id="${id}"]`);
+    item.querySelector('.view-mode').style.display = 'none';
+    item.querySelector('.edit-mode').style.display = 'contents';
+    const input = item.querySelector('.edit-input');
+    input.value = todo.title;
+    input.focus();
+  }
+
+  function cancelEdit(id) {
+    const item = document.querySelector(`[data-id="${id}"]`);
+    item.querySelector('.view-mode').style.display = 'contents';
+    item.querySelector('.edit-mode').style.display = 'none';
+  }
+
+  async function saveEdit(id) {
+    const item = document.querySelector(`[data-id="${id}"]`);
+    const title = item.querySelector('.edit-input').value.trim();
+    if (!title) { cancelEdit(id); return; }
+    try {
+      const updated = await apiFetch(`/todos/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ title })
+      });
+      todos = todos.map(t => t.id === id ? updated : t);
+      render();
+    } catch {
+      showError('Failed to save todo.');
+    }
+  }
+
+  // ── Render ─────────────────────────────────────────────
+  function render() {
+    const list = document.getElementById('todo-list');
+    const empty = document.getElementById('empty-msg');
+    const pending = todos.filter(t => !t.done).length;
+    const done    = todos.filter(t =>  t.done).length;
+
+    document.getElementById('stat-pending').textContent = `${pending} pending`;
+    document.getElementById('stat-done').textContent    = `${done} done`;
+
+    if (todos.length === 0) {
+      list.innerHTML = '';
+      list.appendChild(empty);
+      return;
+    }
+
+    list.innerHTML = todos.map(t => `
+      <div class="todo-item ${t.done ? 'done' : ''}" data-id="${t.id}">
+        <input type="checkbox" ${t.done ? 'checked' : ''} onchange="toggleTodo(${t.id})" />
+
+        <span class="view-mode" style="display:contents">
+          <span class="todo-title" ondblclick="startEdit(${t.id})">${escHtml(t.title)}</span>
+          <div class="actions">
+            <button class="btn-edit"   onclick="startEdit(${t.id})">Edit</button>
+            <button class="btn-delete" onclick="deleteTodo(${t.id})">Delete</button>
+          </div>
+        </span>
+
+        <span class="edit-mode" style="display:none">
+          <input class="edit-input" type="text"
+            onkeydown="if(event.key==='Enter') saveEdit(${t.id}); if(event.key==='Escape') cancelEdit(${t.id})" />
+          <div class="actions">
+            <button class="btn-save"   onclick="saveEdit(${t.id})">Save</button>
+            <button class="btn-cancel" onclick="cancelEdit(${t.id})">Cancel</button>
+          </div>
+        </span>
+      </div>
+    `).join('');
+  }
+
+  function escHtml(str) {
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // Enter key on add input
+  document.getElementById('new-title')
+    .addEventListener('keydown', e => { if (e.key === 'Enter') addTodo(); });
+
+  loadTodos();
+</script>
+</body>
+</html>
